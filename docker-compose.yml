@@ -6,7 +6,7 @@ services:
     environment:
       - API_KEY=${REMOTE_LOG_API_KEY}
     ports:
-      - "80:80" # Coolify will handle TLS + domain
+      - "47199:80" # Coolify will handle TLS + domain
     depends_on:
       - vector
     restart: unless-stopped

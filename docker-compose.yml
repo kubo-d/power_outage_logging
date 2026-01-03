@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
 
   vector:
-    image: timberio/vector:latest
+    image: timberio/vector:latest-alpine
     volumes:
       - ./vector/vector.toml:/etc/vector/vector.toml:ro
       - vector_buffer:/var/lib/vector/buffer
@@ -38,8 +38,8 @@ services:
       - grafana_data:/var/lib/grafana
     # Optional: if you want Grafana exposed through Coolify you can remove the comment
     # and let Coolify map a domain to this service rather than publishing the port directly
-    # ports:
-    #   - "3000:3000"
+    ports:
+      - "3000:3000"
     depends_on:
       - loki
     restart: unless-stopped

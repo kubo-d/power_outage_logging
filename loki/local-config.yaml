@@ -1,0 +1,28 @@
+auth_enabled: false
+server:
+  http_listen_port: 3100
+ingester:
+  wal:
+    enabled: true
+  chunk_idle_period: 5m
+  max_chunk_age: 1h
+  lifecycler:
+    ring:
+      kvstore:
+        store: inmemory
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: boltdb
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+storage_config:
+  boltdb:
+    directory: /loki/index
+  filesystem:
+    directory: /loki/chunks
+limits_config:
+  retention_period: 168h  # 7 days

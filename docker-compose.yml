@@ -1,0 +1,53 @@
+version: '3.7'
+
+services:
+  nginx-auth:
+    build: ./nginx
+    environment:
+      - API_KEY=${REMOTE_LOG_API_KEY}
+    ports:
+      - "80:80" # Coolify will handle TLS + domain
+    depends_on:
+      - vector
+    restart: unless-stopped
+
+  vector:
+    image: timberio/vector:latest
+    volumes:
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - vector_buffer:/var/lib/vector/buffer
+    # Keep internal only; expose via nginx-auth proxy
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.8.2
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/local-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    # Internal only
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:9.5.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    # Optional: if you want Grafana exposed through Coolify you can remove the comment
+    # and let Coolify map a domain to this service rather than publishing the port directly
+    # ports:
+    #   - "3000:3000"
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  vector_buffer:
+    driver: local
+  loki_data:
+    driver: local
+  grafana_data:
+    driver: local

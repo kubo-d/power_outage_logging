@@ -1,0 +1,26 @@
+# Vector config: HTTP source -> remap label -> Loki sink
+
+[sources.http_logs]
+type = "http"
+address = "0.0.0.0:8686"
+encoding.codec = "json"
+
+[transforms.labeler]
+type = "remap"
+inputs = ["http_logs"]
+# Create loki labels using device_id and optional tags
+source = '''
+  .device_id = .device_id // ensure exists
+  . = merge(., {"__loki__labels": "device_id=\"${device_id}\",app=\"power-outage\""})
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["labeler"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+
+[sinks.loki.buffer]
+type = "disk"
+max_size = 104857600 # 100MB buffer
+path = "/var/lib/vector/buffer"

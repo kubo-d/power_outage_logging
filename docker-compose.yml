@@ -25,6 +25,7 @@ services:
     volumes:
       - ./loki/local-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
+      - loki_wal:/wal
     # Internal only
     restart: unless-stopped
 
@@ -48,6 +49,8 @@ volumes:
   vector_buffer:
     driver: local
   loki_data:
+    driver: local
+  loki_wal:
     driver: local
   grafana_data:
     driver: local

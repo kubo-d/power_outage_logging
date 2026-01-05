@@ -10,8 +10,10 @@ type = "remap"
 inputs = ["http_logs"]
 # Create loki labels using device_id and optional tags
 source = '''
-  .device_id = .device_id # ensure exists
-  . = merge(., {"__loki__labels": "device_id=\"" + .device_id + "\",app=\"power-outage\""})
+  if (!exists(.device_id)) {
+    .device_id = "unknown"
+  }
+  . = merge(., {"__loki__labels": "device_id=\"" + .device_id + "\",app=\"power-outage\""} ?? {})
 '''
 
 [sinks.loki]

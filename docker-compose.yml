@@ -28,9 +28,23 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
     depends_on:
-      - minio
+      - minio-init
     # Internal only
     restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c '
+        sleep 5;
+        mc alias set minio http://minio:9000 minioadmin minioadmin &&
+        mc mb minio/loki --ignore-existing &&
+        mc policy set public minio/loki || true;
+        exit 0
+      '
+    restart: "no"
   minio:
     image: minio/minio:latest
     command: server /data

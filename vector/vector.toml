@@ -1,9 +1,9 @@
 # Vector config: HTTP source -> remap label -> Loki sink
 
 [sources.http_logs]
-type = "http"
+type = "http_server"
 address = "0.0.0.0:8686"
-encoding.codec = "json"
+encoding = "json"
 
 [transforms.labeler]
 type = "remap"

@@ -7,6 +7,7 @@ server:
 ingester:
   wal:
     enabled: true
+    dir: /loki/wal
   chunk_idle_period: 5m
   max_chunk_age: 1h
   lifecycler:

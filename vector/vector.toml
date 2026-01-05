@@ -4,7 +4,7 @@
 type = "http"
 address = "0.0.0.0:8686"
 encoding.codec = "json"
-docker compose exec vector vector validate /etc/vector/vector.toml
+
 [transforms.labeler]
 type = "remap"
 inputs = ["http_logs"]

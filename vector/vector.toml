@@ -23,3 +23,5 @@ encoding.codec = "json"
   type = "disk"
   max_size = 104857600
   when_full = "block"
+  [sinks.loki.labels]
+  "*" = "{{ metadata }}"

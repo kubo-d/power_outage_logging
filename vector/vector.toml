@@ -19,8 +19,6 @@ type = "loki"
 inputs = ["labeler"]
 endpoint = "http://loki:3100"
 encoding.codec = "json"
-
-[sinks.loki.buffer]
-type = "disk"
-max_size = 104857600 # 100MB buffer
-path = "/var/lib/vector/buffer"
+buffer.type = "disk"
+buffer.max_size = 104857600
+buffer.path = "/var/lib/vector/buffer"

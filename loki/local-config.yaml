@@ -13,16 +13,23 @@ ingester:
 schema_config:
   configs:
     - from: 2020-10-24
-      store: boltdb
-      object_store: filesystem
+      store: boltdb-shipper
+      object_store: s3
       schema: v11
       index:
         prefix: index_
         period: 24h
 storage_config:
-  boltdb:
-    directory: /loki/index
-  filesystem:
-    directory: /loki/chunks
+  aws:
+    s3: http://minio:9000/loki
+    bucketnames: loki
+    access_key_id: minioadmin
+    secret_access_key: minioadmin
+    s3forcepathstyle: true
+    insecure: true
+  boltdb_shipper:
+    active_index_directory: /tmp/loki/index
+    cache_location: /tmp/loki/index_cache
+    shared_store: s3
 limits_config:
   retention_period: 168h  # 7 days

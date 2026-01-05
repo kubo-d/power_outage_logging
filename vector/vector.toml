@@ -23,7 +23,7 @@ endpoint = "http://loki:3100"
 encoding.codec = "json"
   [sinks.loki.buffer]
   type = "disk"
-  max_size = 104857600
+  max_size = 268435488
   when_full = "block"
   [sinks.loki.labels]
   "*" = "{{ metadata }}"

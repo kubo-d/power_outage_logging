@@ -27,3 +27,7 @@ encoding.codec = "json"
   when_full = "block"
   [sinks.loki.labels]
   "*" = "{{ metadata }}"
+
+[api]
+enabled = true
+address = "0.0.0.0:8687"

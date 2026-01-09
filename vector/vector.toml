@@ -14,8 +14,8 @@ source = '''
     .device_id = "unknown"
   }
   .__loki__labels = {
-    device_id: .device_id,
-    app: "power-outage"
+    "device_id" => .device_id,
+    "app" => "power-outage"
   }
 '''
 

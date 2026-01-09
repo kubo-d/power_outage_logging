@@ -13,10 +13,6 @@ source = '''
   if (!exists(.device_id)) {
     .device_id = "unknown"
   }
-  .__loki__labels = {
-    "device_id": .device_id,
-    "app": "power-outage"
-  }
 '''
 
 [sinks.loki]
@@ -29,7 +25,8 @@ encoding.codec = "json"
   max_size = 268435488
   when_full = "block"
   [sinks.loki.labels]
-  __loki__labels = "{{ __loki__labels }}"
+  device_id = "{{ device_id }}"
+  app = "power-outage"
 
 [api]
 enabled = true

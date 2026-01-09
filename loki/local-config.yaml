@@ -1,3 +1,5 @@
+common:
+  replication_factor: 1
 compactor:
   working_directory: /tmp/loki/compactor
   shared_store: s3
@@ -23,7 +25,6 @@ schema_config:
       index:
         prefix: index_
         period: 24h
-      replication_factor: 1
 storage_config:
   aws:
     s3: http://minio:9000/loki

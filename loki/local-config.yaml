@@ -27,12 +27,8 @@ schema_config:
         period: 24h
 storage_config:
   aws:
-    s3: http://minio:9000/loki
-    bucketnames: loki
-    access_key_id: minioadmin
-    secret_access_key: minioadmin
+    s3: http://minioadmin:minioadmin@minio.:9000/loki
     s3forcepathstyle: true
-    insecure: true
   boltdb_shipper:
     active_index_directory: /tmp/loki/index
     cache_location: /tmp/loki/index_cache

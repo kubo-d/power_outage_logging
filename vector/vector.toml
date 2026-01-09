@@ -13,7 +13,10 @@ source = '''
   if (!exists(.device_id)) {
     .device_id = "unknown"
   }
-  . = merge(., {"__loki__labels": "device_id=\"" + .device_id + "\",app=\"power-outage\""} ?? {})
+  .__loki__labels = {
+    device_id: .device_id,
+    app: "power-outage"
+  }
 '''
 
 [sinks.loki]

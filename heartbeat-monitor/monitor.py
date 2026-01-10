@@ -6,12 +6,15 @@ import signal
 from typing import Dict, Any
 import requests
 
-LOKI_URL = os.environ.get("PUSHOVER_API_TOKENLOKI_URL", "http://loki:3100")
+# Loki endpoint
+LOKI_URL = os.environ.get("LOKI_URL", "http://loki:3100")
 PUSHOVER_API_TOKEN = os.environ.get("PUSHOVER_API_TOKEN", "")
 HEARTBEAT_THRESHOLD_MIN = int(os.environ.get("HEARTBEAT_THRESHOLD_MIN", "15"))
 POLL_INTERVAL_SEC = int(os.environ.get("POLL_INTERVAL_SEC", "60"))
 STATE_PATH = os.environ.get("STATE_PATH", "/data/state.json")
 QUERY_WINDOW_HOURS = int(os.environ.get("QUERY_WINDOW_HOURS", "24"))
+# Max entries per query; Loki often caps at 5000
+LOKI_QUERY_LIMIT = int(os.environ.get("LOKI_QUERY_LIMIT", "5000"))
 LOGQL_QUERY = os.environ.get(
     "LOGQL_QUERY",
     '{app="power-outage"} |= "heartbeat"'
@@ -59,8 +62,9 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
         "query": LOGQL_QUERY,
         "start": str(start_ns),
         "end": str(now_ns),
-        "direction": "forward",
-        "limit": "10000",
+        # Get latest entries first to quickly find recent heartbeats
+        "direction": "backward",
+        "limit": str(LOKI_QUERY_LIMIT),
     }
     url = f"{LOKI_URL}/loki/api/v1/query_range"
     try:

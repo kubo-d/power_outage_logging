@@ -75,6 +75,9 @@ services:
       - PUSHOVER_API_TOKEN=${PUSHOVER_API_TOKEN}
       - HEARTBEAT_THRESHOLD_MIN=15
       - POLL_INTERVAL_SEC=60
+      - QUERY_WINDOW_HOURS=24
+      - LOKI_QUERY_LIMIT=5000
+      - LOKI_TIMEOUT_SEC=20
     depends_on:
       - loki
     volumes:

@@ -15,6 +15,8 @@ STATE_PATH = os.environ.get("STATE_PATH", "/data/state.json")
 QUERY_WINDOW_HOURS = int(os.environ.get("QUERY_WINDOW_HOURS", "24"))
 # Max entries per query; Loki often caps at 5000
 LOKI_QUERY_LIMIT = int(os.environ.get("LOKI_QUERY_LIMIT", "5000"))
+# Per-request timeout to Loki in seconds
+LOKI_TIMEOUT_SEC = int(os.environ.get("LOKI_TIMEOUT_SEC", "20"))
 LOGQL_QUERY = os.environ.get(
     "LOGQL_QUERY",
     '{app="power-outage"} |= "heartbeat"'
@@ -68,7 +70,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
     }
     url = f"{LOKI_URL}/loki/api/v1/query_range"
     try:
-        resp = SESSION.get(url, params=params, timeout=10)
+        resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
         if resp.status_code >= 200 and resp.status_code < 300:
             data = resp.json()
         else:
@@ -78,7 +80,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
             if LOGQL_QUERY != fallback:
                 print("[LOKI] Retrying with fallback query")
                 params["query"] = fallback
-                resp = SESSION.get(url, params=params, timeout=10)
+                resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
                 if resp.status_code >= 200 and resp.status_code < 300:
                     data = resp.json()
                 else:

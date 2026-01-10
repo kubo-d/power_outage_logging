@@ -5,6 +5,7 @@ import json
 import signal
 from typing import Dict, Any
 import requests
+import logging
 
 # Loki endpoint
 LOKI_URL = os.environ.get("LOKI_URL", "http://loki:3100")
@@ -30,6 +31,20 @@ SESSION.headers.update({"User-Agent": "heartbeat-monitor/1.0"})
 
 _running = True
 
+# Logging setup
+LOG_LEVEL_NAME = os.environ.get("LOG_LEVEL", "INFO").upper()
+_LEVELS = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+logging.basicConfig(
+    level=_LEVELS.get(LOG_LEVEL_NAME, logging.INFO),
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
 def _handle_sigterm(signum, frame):
     global _running
     _running = False
@@ -54,7 +69,7 @@ def save_state(state: Dict[str, Any]):
             json.dump(state, f)
         os.replace(tmp, STATE_PATH)
     except Exception as e:
-        print(f"[STATE] Failed to save state: {e}")
+        logging.error(f"[STATE] Failed to save state: {e}")
 
 
 def query_heartbeats() -> Dict[str, Dict[str, Any]]:
@@ -72,27 +87,30 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
         "limit": str(LOKI_QUERY_LIMIT),
     }
     url = f"{LOKI_URL}/loki/api/v1/query_range"
+    logging.debug(f"[LOKI] Querying range: start={start_ns} end={now_ns} limit={LOKI_QUERY_LIMIT} direction=backward")
     try:
         resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
         if resp.status_code >= 200 and resp.status_code < 300:
             data = resp.json()
+            logging.debug(f"[LOKI] Query ok: resultType={data.get('data', {}).get('resultType')} count={len(data.get('data', {}).get('result', []))}")
         else:
-            print(f"[LOKI] Query failed: HTTP {resp.status_code} body={resp.text}")
+            logging.warning(f"[LOKI] Query failed: HTTP {resp.status_code} body={resp.text}")
             # Fallback: try a simpler query
             fallback = '{app="power-outage"} |= "heartbeat"'
             if LOGQL_QUERY != fallback:
-                print("[LOKI] Retrying with fallback query")
+                logging.info("[LOKI] Retrying with fallback query")
                 params["query"] = fallback
                 resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
                 if resp.status_code >= 200 and resp.status_code < 300:
                     data = resp.json()
+                    logging.debug(f"[LOKI] Fallback ok: count={len(data.get('data', {}).get('result', []))}")
                 else:
-                    print(f"[LOKI] Fallback failed: HTTP {resp.status_code} body={resp.text}")
+                    logging.error(f"[LOKI] Fallback failed: HTTP {resp.status_code} body={resp.text}")
                     return {}
             else:
                 return {}
     except Exception as e:
-        print(f"[LOKI] Query exception: {e}")
+        logging.error(f"[LOKI] Query exception: {e}")
         return {}
 
     latest: Dict[str, Dict[str, Any]] = {}
@@ -124,6 +142,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
                     "pushover_retry": obj.get("pushover_retry"),
                     "pushover_expire": obj.get("pushover_expire"),
                 }
+    logging.info(f"[LOKI] Latest heartbeats parsed for {len(latest)} device(s)")
     return latest
 
 
@@ -148,15 +167,15 @@ def send_pushover(user_key: str, title: str, message: str, sound: str = None, pr
         r = SESSION.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
         ok = r.status_code >= 200 and r.status_code < 300
         if not ok:
-            print(f"[PUSH] Send failed: {r.status_code} {r.text}")
+            logging.error(f"[PUSH] Send failed: status={r.status_code} body={r.text}")
         return ok
     except Exception as e:
-        print(f"[PUSH] Exception: {e}")
+        logging.error(f"[PUSH] Exception: {e}")
         return False
 
 
 def monitor_loop():
-    print("[HB] Monitor starting...")
+    logging.info("[HB] Monitor starting...")
     state = load_state()
     devices_state: Dict[str, Any] = state.setdefault("devices", {})
     threshold_sec = HEARTBEAT_THRESHOLD_MIN * 60
@@ -181,19 +200,27 @@ def monitor_loop():
                 hb_expire = int(info.get("pushover_expire")) if info.get("pushover_expire") is not None else DEFAULT_PUSHOVER_EXPIRE_SEC
             except Exception:
                 hb_expire = DEFAULT_PUSHOVER_EXPIRE_SEC
+
+            logging.debug(
+                f"[HB] device={device_id} host={hostname} last_seen={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))} "
+                f"age_sec={int(time.time()-last_seen_sec)} offline={offline} was_alerted={was_alerted} "
+                f"user_key={'yes' if user_key else 'no'} retry={hb_retry} expire={hb_expire}"
+            )
             if offline and not was_alerted:
                 msg = f"Device offline: {hostname} ({device_id})\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
                 if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())
-                    print(f"[HB] Alerted offline: {device_id}")
+                    logging.info(f"[HB] Alerted offline: {device_id}")
             elif (not offline) and was_alerted:
                 msg = f"Device back online: {hostname} ({device_id})\nIP: {ip}"
                 # Recovery notification: default priority (0), no retry/expire
                 if send_pushover(user_key, "Power Outage Detector Online", msg, sound, priority=0):
                     st["alerted"] = False
                     st["last_online_ts"] = int(time.time())
-                    print(f"[HB] Cleared alert: {device_id}")
+                    logging.info(f"[HB] Cleared alert: {device_id}")
+                else:
+                    logging.warning(f"[HB] Failed to send recovery for {device_id}")
             # always update last seen info
             st["last_seen_ts"] = int(last_seen_sec)
             st["hostname"] = hostname

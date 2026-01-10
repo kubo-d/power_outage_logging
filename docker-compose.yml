@@ -78,6 +78,7 @@ services:
       - QUERY_WINDOW_HOURS=24
       - LOKI_QUERY_LIMIT=5000
       - LOKI_TIMEOUT_SEC=20
+      - LOG_LEVEL=INFO
     depends_on:
       - loki
     volumes:

@@ -12,6 +12,10 @@ HEARTBEAT_THRESHOLD_MIN = int(os.environ.get("HEARTBEAT_THRESHOLD_MIN", "15"))
 POLL_INTERVAL_SEC = int(os.environ.get("POLL_INTERVAL_SEC", "60"))
 STATE_PATH = os.environ.get("STATE_PATH", "/data/state.json")
 QUERY_WINDOW_HOURS = int(os.environ.get("QUERY_WINDOW_HOURS", "24"))
+LOGQL_QUERY = os.environ.get(
+    "LOGQL_QUERY",
+    '{app="power-outage"} |= "heartbeat"'
+)
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "heartbeat-monitor/1.0"})
@@ -52,7 +56,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
     now_ns = int(time.time() * 1e9)
     start_ns = now_ns - QUERY_WINDOW_HOURS * 3600 * int(1e9)
     params = {
-        "query": '{app="power-outage"} | json | type="heartbeat"',
+        "query": LOGQL_QUERY,
         "start": str(start_ns),
         "end": str(now_ns),
         "direction": "forward",
@@ -61,10 +65,25 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
     url = f"{LOKI_URL}/loki/api/v1/query_range"
     try:
         resp = SESSION.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        if resp.status_code >= 200 and resp.status_code < 300:
+            data = resp.json()
+        else:
+            print(f"[LOKI] Query failed: HTTP {resp.status_code} body={resp.text}")
+            # Fallback: try a simpler query
+            fallback = '{app="power-outage"} |= "heartbeat"'
+            if LOGQL_QUERY != fallback:
+                print("[LOKI] Retrying with fallback query")
+                params["query"] = fallback
+                resp = SESSION.get(url, params=params, timeout=10)
+                if resp.status_code >= 200 and resp.status_code < 300:
+                    data = resp.json()
+                else:
+                    print(f"[LOKI] Fallback failed: HTTP {resp.status_code} body={resp.text}")
+                    return {}
+            else:
+                return {}
     except Exception as e:
-        print(f"[LOKI] Query failed: {e}")
+        print(f"[LOKI] Query exception: {e}")
         return {}
 
     latest: Dict[str, Dict[str, Any]] = {}
@@ -74,9 +93,14 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
         for ts_str, line in values:
             try:
                 ts_ns = int(ts_str)
+            except Exception:
+                continue
+            # Parse JSON line if possible; otherwise skip
+            try:
                 obj = json.loads(line)
             except Exception:
                 continue
+            # Accept entries that look like heartbeats without relying on strict LogQL filters
             if obj.get("type") != "heartbeat":
                 continue
             device_id = obj.get("device_id") or "unknown"

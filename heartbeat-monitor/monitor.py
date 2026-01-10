@@ -17,6 +17,9 @@ QUERY_WINDOW_HOURS = int(os.environ.get("QUERY_WINDOW_HOURS", "24"))
 LOKI_QUERY_LIMIT = int(os.environ.get("LOKI_QUERY_LIMIT", "5000"))
 # Per-request timeout to Loki in seconds
 LOKI_TIMEOUT_SEC = int(os.environ.get("LOKI_TIMEOUT_SEC", "20"))
+# Default emergency parameters if not provided in logs
+DEFAULT_PUSHOVER_RETRY_SEC = int(os.environ.get("DEFAULT_PUSHOVER_RETRY_SEC", "60"))
+DEFAULT_PUSHOVER_EXPIRE_SEC = int(os.environ.get("DEFAULT_PUSHOVER_EXPIRE_SEC", "3600"))
 LOGQL_QUERY = os.environ.get(
     "LOGQL_QUERY",
     '{app="power-outage"} |= "heartbeat"'
@@ -118,11 +121,13 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
                     "ip": obj.get("ip"),
                     "pushover_user_key": obj.get("pushover_user_key"),
                     "pushover_sound": obj.get("pushover_sound"),
+                    "pushover_retry": obj.get("pushover_retry"),
+                    "pushover_expire": obj.get("pushover_expire"),
                 }
     return latest
 
 
-def send_pushover(user_key: str, title: str, message: str, sound: str = None) -> bool:
+def send_pushover(user_key: str, title: str, message: str, sound: str = None, priority: int = None, retry: int = None, expire: int = None) -> bool:
     if not PUSHOVER_API_TOKEN or not user_key:
         return False
     payload = {
@@ -133,6 +138,12 @@ def send_pushover(user_key: str, title: str, message: str, sound: str = None) ->
     }
     if sound:
         payload["sound"] = sound
+    if priority is not None:
+        payload["priority"] = int(priority)
+        if int(priority) == 2:
+            # Emergency requires retry and expire
+            payload["retry"] = int(retry) if retry is not None else DEFAULT_PUSHOVER_RETRY_SEC
+            payload["expire"] = int(expire) if expire is not None else DEFAULT_PUSHOVER_EXPIRE_SEC
     try:
         r = SESSION.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
         ok = r.status_code >= 200 and r.status_code < 300
@@ -161,15 +172,25 @@ def monitor_loop():
             sound = info.get("pushover_sound")
             hostname = info.get("hostname") or device_id
             ip = info.get("ip") or ""
+            # Emergency parameters from heartbeat or defaults
+            try:
+                hb_retry = int(info.get("pushover_retry")) if info.get("pushover_retry") is not None else DEFAULT_PUSHOVER_RETRY_SEC
+            except Exception:
+                hb_retry = DEFAULT_PUSHOVER_RETRY_SEC
+            try:
+                hb_expire = int(info.get("pushover_expire")) if info.get("pushover_expire") is not None else DEFAULT_PUSHOVER_EXPIRE_SEC
+            except Exception:
+                hb_expire = DEFAULT_PUSHOVER_EXPIRE_SEC
             if offline and not was_alerted:
                 msg = f"Device offline: {hostname} ({device_id})\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
-                if send_pushover(user_key, "Power Outage Detector Offline", msg, sound):
+                if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())
                     print(f"[HB] Alerted offline: {device_id}")
             elif (not offline) and was_alerted:
                 msg = f"Device back online: {hostname} ({device_id})\nIP: {ip}"
-                if send_pushover(user_key, "Power Outage Detector Online", msg, sound):
+                # Recovery notification: default priority (0), no retry/expire
+                if send_pushover(user_key, "Power Outage Detector Online", msg, sound, priority=0):
                     st["alerted"] = False
                     st["last_online_ts"] = int(time.time())
                     print(f"[HB] Cleared alert: {device_id}")

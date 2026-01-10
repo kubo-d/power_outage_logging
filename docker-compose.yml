@@ -68,10 +68,25 @@ services:
       - loki
     restart: unless-stopped
 
+  heartbeat-monitor:
+    build: ./heartbeat-monitor
+    environment:
+      - LOKI_URL=http://loki:3100
+      - PUSHOVER_API_TOKEN=${PUSHOVER_API_TOKEN}
+      - HEARTBEAT_THRESHOLD_MIN=15
+      - POLL_INTERVAL_SEC=60
+    depends_on:
+      - loki
+    volumes:
+      - heartbeat_state:/data
+    restart: unless-stopped
+
 volumes:
   vector_buffer:
     driver: local
   minio_data:
     driver: local
   grafana_data:
+    driver: local
+  heartbeat_state:
     driver: local

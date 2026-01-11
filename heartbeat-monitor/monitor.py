@@ -191,6 +191,7 @@ def monitor_loop():
             sound = info.get("pushover_sound")
             hostname = info.get("hostname") or device_id
             ip = info.get("ip") or ""
+            device_name = info.get("device_name") or device_id
             # Emergency parameters from heartbeat or defaults
             try:
                 hb_retry = int(info.get("pushover_retry")) if info.get("pushover_retry") is not None else DEFAULT_PUSHOVER_RETRY_SEC
@@ -207,13 +208,13 @@ def monitor_loop():
                 f"user_key={'yes' if user_key else 'no'} retry={hb_retry} expire={hb_expire}"
             )
             if offline and not was_alerted:
-                msg = f"Device offline: {hostname} ({device_id})\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
+                msg = f"Device offline: {device_name}\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
                 if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())
                     logging.info(f"[HB] Alerted offline: {device_id}")
             elif (not offline) and was_alerted:
-                msg = f"Device back online: {hostname} ({device_id})\nIP: {ip}"
+                msg = f"Device back online: {device_name}\nIP: {ip}"
                 # Recovery notification: default priority (0), no retry/expire
                 if send_pushover(user_key, "Power Outage Detector Online", msg, sound, priority=0):
                     st["alerted"] = False
@@ -225,6 +226,7 @@ def monitor_loop():
             st["last_seen_ts"] = int(last_seen_sec)
             st["hostname"] = hostname
             st["ip"] = ip
+            st["device_name"] = device_name
         save_state(state)
         # sleep
         for _ in range(POLL_INTERVAL_SEC):

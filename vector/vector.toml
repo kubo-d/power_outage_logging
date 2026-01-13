@@ -8,7 +8,7 @@ encoding = "json"
 [transforms.labeler]
 type = "remap"
 inputs = ["http_logs"]
-# Create loki labels using device_id and optional tags
+# Create loki labels using device_id and optional tags, and set event timestamp safely
 source = '''
   if (!exists(.device_id)) {
     .device_id = "unknown"
@@ -20,21 +20,12 @@ source = '''
     .hostname = "unknown"
   }
 
-  # Use payload 'timestamp' as event timestamp when available
-  if (exists(.timestamp)) {
-    ts = .timestamp
-    if (is_integer(ts)) {
-      # Detect milliseconds vs seconds
-      if (ts > 10000000000) {
-        .timestamp = to_timestamp(ts / 1000)
-      } else {
-        .timestamp = to_timestamp(ts)
-      }
-    } else if (is_string(ts)) {
-      parsed, err = parse_timestamp(ts)
-      if (err == null) {
-        .timestamp = parsed
-      }
+  if (exists(.timestamp) && is_integer(.timestamp)) {
+    # Detect milliseconds vs seconds using a safe threshold
+    if (.timestamp > 10000000000) {
+      .timestamp = from_unix_timestamp!(.timestamp, unit: "milliseconds")
+    } else {
+      .timestamp = from_unix_timestamp!(.timestamp)
     }
   }
 '''

@@ -25,9 +25,9 @@ source = '''
     if (tsi > 0) {
       # Detect milliseconds vs seconds using a safe threshold
       if (tsi > 10000000000) {
-        .timestamp = from_unix_timestamp(tsi, "milliseconds")
+        .timestamp = from_unix_timestamp!(tsi, "milliseconds")
       } else {
-        .timestamp = from_unix_timestamp(tsi)
+        .timestamp = from_unix_timestamp!(tsi)
       }
     }
   }

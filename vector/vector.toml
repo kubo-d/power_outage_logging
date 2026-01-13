@@ -20,12 +20,15 @@ source = '''
     .hostname = "unknown"
   }
 
-  if (exists(.timestamp) && is_integer(.timestamp)) {
-    # Detect milliseconds vs seconds using a safe threshold
-    if (.timestamp > 10000000000) {
-      .timestamp = from_unix_timestamp!(.timestamp, unit: "milliseconds")
-    } else {
-      .timestamp = from_unix_timestamp!(.timestamp)
+  if (exists(.timestamp)) {
+    tsi = to_int(.timestamp) ?? 0
+    if (tsi > 0) {
+      # Detect milliseconds vs seconds using a safe threshold
+      if (tsi > 10000000000) {
+        .timestamp = from_unix_timestamp(tsi, "milliseconds")
+      } else {
+        .timestamp = from_unix_timestamp(tsi)
+      }
     }
   }
 '''

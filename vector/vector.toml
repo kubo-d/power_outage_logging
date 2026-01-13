@@ -19,6 +19,24 @@ source = '''
   if (!exists(.hostname)) {
     .hostname = "unknown"
   }
+
+  # Use payload 'timestamp' as event timestamp when available
+  if (exists(.timestamp)) {
+    ts = .timestamp
+    if (is_integer(ts)) {
+      # Detect milliseconds vs seconds
+      if (ts > 10000000000) {
+        .timestamp = to_timestamp(ts / 1000)
+      } else {
+        .timestamp = to_timestamp(ts)
+      }
+    } else if (is_string(ts)) {
+      parsed, err = parse_timestamp(ts)
+      if (err == null) {
+        .timestamp = parsed
+      }
+    }
+  }
 '''
 
 [sinks.loki]

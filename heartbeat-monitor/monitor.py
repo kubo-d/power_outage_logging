@@ -6,6 +6,11 @@ import signal
 from typing import Dict, Any
 import requests
 import logging
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 # Loki endpoint
 LOKI_URL = os.environ.get("LOKI_URL", "http://loki:3100")
@@ -51,6 +56,21 @@ logging.basicConfig(
     level=_LEVELS.get(LOG_LEVEL_NAME, logging.INFO),
     format="%(asctime)s %(levelname)s %(message)s",
 )
+
+# Timezone handling for message formatting
+TZ_NAME = os.environ.get("TIMEZONE") or os.environ.get("TZ")
+
+def _fmt_ts(ts_sec: float) -> str:
+    try:
+        if TZ_NAME and ZoneInfo is not None:
+            tz = ZoneInfo(TZ_NAME)
+            dt = datetime.fromtimestamp(ts_sec, tz=tz)
+        else:
+            dt = datetime.fromtimestamp(ts_sec)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        # Fallback to localtime string
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts_sec))
 
 def _handle_sigterm(signum, frame):
     global _running
@@ -179,6 +199,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
                     "hostname": obj.get("hostname"),
                     "ip": obj.get("ip"),
                     "device_name": obj.get("device_name"),
+                    "hb_seq": obj.get("hb_seq"),
                     "pushover_user_key": obj.get("pushover_user_key"),
                     "pushover_sound": obj.get("pushover_sound"),
                     "pushover_retry": obj.get("pushover_retry"),
@@ -255,13 +276,16 @@ def monitor_loop():
                 hb_expire = DEFAULT_PUSHOVER_EXPIRE_SEC
 
             logging.debug(
-                f"[HB] device={device_id} host={hostname} last_seen={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))} "
+                f"[HB] device={device_id} host={hostname} last_seen={_fmt_ts(last_seen_sec)} "
                 f"age_sec={int(time.time()-last_seen_sec)} offline={offline} was_alerted={was_alerted} "
                 f"user_key={'yes' if user_key else 'no'} retry={hb_retry} expire={hb_expire}"
             )
+            logging.info(
+                f"[HB] device={device_id} name={device_name} age_sec={int(time.time()-last_seen_sec)} hb_seq={info.get('hb_seq') if info.get('hb_seq') is not None else '-'} offline={offline}"
+            )
             devices_seen += 1
             if offline and not was_alerted:
-                msg = f"Device offline: {device_name}\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
+                msg = f"Device offline: {device_name}\nLast seen: {_fmt_ts(last_seen_sec)}\nIP: {ip}"
                 if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())

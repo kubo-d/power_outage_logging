@@ -13,6 +13,12 @@ source = '''
   if (!exists(.device_id)) {
     .device_id = "unknown"
   }
+  if (!exists(.type)) {
+    .type = "unknown"
+  }
+  if (!exists(.hostname)) {
+    .hostname = "unknown"
+  }
 '''
 
 [sinks.loki]
@@ -26,6 +32,8 @@ encoding.codec = "json"
   when_full = "block"
   [sinks.loki.labels]
   device_id = "{{ device_id }}"
+  type = "{{ type }}"
+  hostname = "{{ hostname }}"
   app = "power-outage"
 
 [api]

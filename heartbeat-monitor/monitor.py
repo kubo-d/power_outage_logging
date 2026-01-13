@@ -13,7 +13,14 @@ PUSHOVER_API_TOKEN = os.environ.get("PUSHOVER_API_TOKEN", "")
 HEARTBEAT_THRESHOLD_MIN = int(os.environ.get("HEARTBEAT_THRESHOLD_MIN", "15"))
 POLL_INTERVAL_SEC = int(os.environ.get("POLL_INTERVAL_SEC", "60"))
 STATE_PATH = os.environ.get("STATE_PATH", "/data/state.json")
-QUERY_WINDOW_HOURS = int(os.environ.get("QUERY_WINDOW_HOURS", "24"))
+# Query window: if env not set, derive dynamically from heartbeat threshold
+# Default: 4x the offline threshold in hours, clamped to [2, 24]
+_QWH_ENV = os.environ.get("QUERY_WINDOW_HOURS")
+if _QWH_ENV is not None:
+    QUERY_WINDOW_HOURS = int(_QWH_ENV)
+else:
+    _thr_hours = max(1.0, HEARTBEAT_THRESHOLD_MIN / 60.0)
+    QUERY_WINDOW_HOURS = int(min(24, max(2, _thr_hours * 4)))
 # Max entries per query; Loki often caps at 5000
 LOKI_QUERY_LIMIT = int(os.environ.get("LOKI_QUERY_LIMIT", "5000"))
 # Per-request timeout to Loki in seconds
@@ -23,7 +30,7 @@ DEFAULT_PUSHOVER_RETRY_SEC = int(os.environ.get("DEFAULT_PUSHOVER_RETRY_SEC", "6
 DEFAULT_PUSHOVER_EXPIRE_SEC = int(os.environ.get("DEFAULT_PUSHOVER_EXPIRE_SEC", "3600"))
 LOGQL_QUERY = os.environ.get(
     "LOGQL_QUERY",
-    '{app="power-outage"} |= "heartbeat"'
+    '{app="power-outage", type="heartbeat"}'
 )
 
 SESSION = requests.Session()
@@ -78,6 +85,7 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
     """
     now_ns = int(time.time() * 1e9)
     start_ns = now_ns - QUERY_WINDOW_HOURS * 3600 * int(1e9)
+    window_sec = QUERY_WINDOW_HOURS * 3600
     params = {
         "query": LOGQL_QUERY,
         "start": str(start_ns),
@@ -87,16 +95,32 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
         "limit": str(LOKI_QUERY_LIMIT),
     }
     url = f"{LOKI_URL}/loki/api/v1/query_range"
-    logging.debug(f"[LOKI] Querying range: start={start_ns} end={now_ns} limit={LOKI_QUERY_LIMIT} direction=backward")
+    logging.info(
+        f"[LOKI] Query: window={QUERY_WINDOW_HOURS}h (~{window_sec}s) limit={LOKI_QUERY_LIMIT} direction=backward"
+    )
     try:
         resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
         if resp.status_code >= 200 and resp.status_code < 300:
             data = resp.json()
-            logging.debug(f"[LOKI] Query ok: resultType={data.get('data', {}).get('resultType')} count={len(data.get('data', {}).get('result', []))}")
+            results_count = len(data.get('data', {}).get('result', []))
+            logging.debug(f"[LOKI] Query ok: resultType={data.get('data', {}).get('resultType')} count={results_count}")
+            # If default label-based query returns no results, try JSON fallback once
+            if results_count == 0:
+                fallback = '{app="power-outage"} | json | type="heartbeat"'
+                if LOGQL_QUERY != fallback:
+                    logging.info("[LOKI] No results. Retrying with JSON fallback")
+                    params["query"] = fallback
+                    resp = SESSION.get(url, params=params, timeout=LOKI_TIMEOUT_SEC)
+                    if resp.status_code >= 200 and resp.status_code < 300:
+                        data = resp.json()
+                        logging.debug(f"[LOKI] Fallback ok: count={len(data.get('data', {}).get('result', []))}")
+                    else:
+                        logging.error(f"[LOKI] Fallback failed: HTTP {resp.status_code} body={resp.text}")
+                        return {}
         else:
             logging.warning(f"[LOKI] Query failed: HTTP {resp.status_code} body={resp.text}")
             # Fallback: try a simpler query
-            fallback = '{app="power-outage"} |= "heartbeat"'
+            fallback = '{app="power-outage"} | json | type="heartbeat"'
             if LOGQL_QUERY != fallback:
                 logging.info("[LOKI] Retrying with fallback query")
                 params["query"] = fallback
@@ -114,9 +138,20 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
         return {}
 
     latest: Dict[str, Dict[str, Any]] = {}
+    # Debug counters
+    total_streams = 0
+    total_values = 0
+    parse_json_ok = 0
+    parse_json_fail = 0
+    non_hb_skipped = 0
+    missing_id_skipped = 0
+    latest_updates = 0
+    latest_older_ignored = 0
     results = data.get("data", {}).get("result", [])
     for stream in results:
+        total_streams += 1
         values = stream.get("values", [])
+        total_values += len(values)
         for ts_str, line in values:
             try:
                 ts_ns = int(ts_str)
@@ -125,24 +160,38 @@ def query_heartbeats() -> Dict[str, Dict[str, Any]]:
             # Parse JSON line if possible; otherwise skip
             try:
                 obj = json.loads(line)
+                parse_json_ok += 1
             except Exception:
+                parse_json_fail += 1
                 continue
             # Accept entries that look like heartbeats without relying on strict LogQL filters
             if obj.get("type") != "heartbeat":
+                non_hb_skipped += 1
                 continue
-            device_id = obj.get("device_id") or "unknown"
+            device_id = obj.get("device_id")
+            if not device_id:
+                missing_id_skipped += 1
+                continue
             entry = latest.get(device_id)
             if entry is None or ts_ns > entry["ts_ns"]:
                 latest[device_id] = {
                     "ts_ns": ts_ns,
                     "hostname": obj.get("hostname"),
                     "ip": obj.get("ip"),
+                    "device_name": obj.get("device_name"),
                     "pushover_user_key": obj.get("pushover_user_key"),
                     "pushover_sound": obj.get("pushover_sound"),
                     "pushover_retry": obj.get("pushover_retry"),
                     "pushover_expire": obj.get("pushover_expire"),
                 }
-    logging.info(f"[LOKI] Latest heartbeats parsed for {len(latest)} device(s)")
+                latest_updates += 1
+            else:
+                latest_older_ignored += 1
+    logging.info(
+        f"[LOKI] Streams={total_streams} entries={total_values} json_ok={parse_json_ok} json_fail={parse_json_fail} "
+        f"non_hb={non_hb_skipped} missing_id={missing_id_skipped} updates={latest_updates} older_ignored={latest_older_ignored}; "
+        f"latest devices={len(latest)}"
+    )
     return latest
 
 
@@ -182,6 +231,9 @@ def monitor_loop():
     while _running:
         latest = query_heartbeats()
         now_ns = int(time.time() * 1e9)
+        devices_seen = 0
+        offline_count = 0
+        alert_sent = 0
         for device_id, info in latest.items():
             last_seen_sec = info["ts_ns"] / 1e9
             offline = (time.time() - last_seen_sec) > threshold_sec
@@ -207,12 +259,15 @@ def monitor_loop():
                 f"age_sec={int(time.time()-last_seen_sec)} offline={offline} was_alerted={was_alerted} "
                 f"user_key={'yes' if user_key else 'no'} retry={hb_retry} expire={hb_expire}"
             )
+            devices_seen += 1
             if offline and not was_alerted:
                 msg = f"Device offline: {device_name}\nLast seen: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen_sec))}\nIP: {ip}"
                 if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())
                     logging.info(f"[HB] Alerted offline: {device_id}")
+                    alert_sent += 1
+                offline_count += 1
             elif (not offline) and was_alerted:
                 msg = f"Device back online: {device_name}\nIP: {ip}"
                 # Recovery notification: default priority (0), no retry/expire
@@ -227,6 +282,9 @@ def monitor_loop():
             st["hostname"] = hostname
             st["ip"] = ip
             st["device_name"] = device_name
+        logging.info(
+            f"[HB] Cycle: devices_seen={devices_seen} offline={offline_count} alerts_sent={alert_sent} threshold_sec={threshold_sec}"
+        )
         save_state(state)
         # sleep
         for _ in range(POLL_INTERVAL_SEC):

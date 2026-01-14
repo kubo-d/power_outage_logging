@@ -285,17 +285,17 @@ def monitor_loop():
             )
             devices_seen += 1
             if offline and not was_alerted:
-                msg = f"Device offline: {device_name}\nLast seen: {_fmt_ts(last_seen_sec)}\nIP: {ip}"
-                if send_pushover(user_key, "Power Outage Detector Offline", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
+                msg = f"Zařízení pravděpodobně ztratilo připojení k internetu.\nNázev: {device_name}\nNaposled online: {_fmt_ts(last_seen_sec)}\nIP: {ip}"
+                if send_pushover(user_key, "Ztráta spojení se zařízením", msg, sound, priority=2, retry=hb_retry, expire=hb_expire):
                     st["alerted"] = True
                     st["last_offline_ts"] = int(time.time())
                     logging.info(f"[HB] Alerted offline: {device_id}")
                     alert_sent += 1
                 offline_count += 1
             elif (not offline) and was_alerted:
-                msg = f"Device back online: {device_name}\nIP: {ip}"
+                msg = f"Název: {device_name}\nIP: {ip}"
                 # Recovery notification: default priority (0), no retry/expire
-                if send_pushover(user_key, "Power Outage Detector Online", msg, sound, priority=0):
+                if send_pushover(user_key, "Spojení se zařízením obnoveno", msg, sound, priority=0):
                     st["alerted"] = False
                     st["last_online_ts"] = int(time.time())
                     logging.info(f"[HB] Cleared alert: {device_id}")

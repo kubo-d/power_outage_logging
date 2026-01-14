@@ -15,14 +15,20 @@ Environment variables (configured in Coolify or docker-compose):
  - `DEFAULT_PUSHOVER_RETRY_SEC`: Fallback retry seconds for emergency notifications if missing in logs (default 60).
  - `DEFAULT_PUSHOVER_EXPIRE_SEC`: Fallback expire seconds for emergency notifications if missing in logs (default 3600).
  - `LOG_LEVEL`: Set logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; default `INFO`).
+ - `LOGQL_QUERY`: Override the LogQL used for querying heartbeats (default `{app="power-outage", type="heartbeat"}`).
+ - `TIMEZONE`/`TZ`: Optional timezone for formatting timestamps in notifications (e.g., `Europe/Prague`).
  
 
 State is persisted at `/data/state.json` using a named volume `heartbeat_state`.
 
 ## How it works
-- Queries LogQL: `{app="power-outage"} |= "heartbeat"` over the window, using backward direction to get recent entries first.
+- Queries LogQL: `{app="power-outage", type="heartbeat"}` over the window, using backward direction to get recent entries first.
 - Parses the latest heartbeat per `device_id` and compares against the threshold.
 - Sends Pushover offline alerts with priority 2 (emergency), using `pushover_retry` and `pushover_expire` from logs (or defaults), and `pushover_sound`.
 - Sends recovery notifications with default priority (0) without retry/expire.
+
+Label filters supported (delimited by commas inside braces), for example:
+- Filter by device: `{app="power-outage", type="heartbeat", device_id="aa:bb:cc:dd:ee:ff"}`
+- Filter by hostname: `{app="power-outage", type="heartbeat", hostname="my-sensor"}`
 
 Device naming: if the firmware includes `device_name` in heartbeat logs, the monitor uses it in notifications; otherwise it falls back to `device_id` (MAC).
